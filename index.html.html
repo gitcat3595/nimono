@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NIMONO - Oil Bubble Fusion</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 25%, #dee2e6 50%, #ced4da 75%, #adb5bd 100%);
+            overflow: hidden;
+            touch-action: none;
+            user-select: none;
+            height: 100vh;
+        }
+
+        #canvas {
+            display: block;
+            cursor: pointer;
+            background: transparent;
+        }
+
+        .hud {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            pointer-events: none;
+            z-index: 100;
+        }
+
+        .title {
+            font-size: 24px;
+            font-weight: 300;
+            letter-spacing: 3px;
+            color: rgba(0, 0, 0, 0.7);
+            text-transform: uppercase;
+        }
+
+        .bubble-count {
+            background: rgba(255, 255, 255, 0.8);
+            padding: 8px 16px;
+            border-radius: 20px;
+            color: rgba(0, 0, 0, 0.8);
+            font-size: 14px;
+            font-weight: 500;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .instructions {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.9);
+            padding: 12px 20px;
+            border-radius: 16px;
+            color: rgba(0, 0, 0, 0.8);
+            font-size: 13px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            pointer-events: none;
+            text-align: center;
+            font-weight: 400;
+        }
+
+        .victory-message {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 255, 255, 0.95);
+            padding: 30px 40px;
+            border-radius: 24px;
+            text-align: center;
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+            z-index: 200;
+            display: none;
+        }
+
+        .victory-title {
+            font-size: 28px;
+            font-weight: 300;
+            color: #333;
+            margin-bottom: 10px;
+            letter-spacing: 2px;
+        }
+
+        .victory-subtitle {
+            font-size: 16px;
+            color: #666;
+            margin-bottom: 20px;
+            font-weight: 400;
+        }
+
+        .reset-button {
+            background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: transform 0.2s;
+            letter-spacing: 1px;
+        }
+
+        .reset-button:active {
+            transform: scale(0.95);
+        }
+
+        @media (max-width: 768px) {
+            .hud {
+                top: 10px;
+                left: 10px;
+                right: 10px;
+            }
+            
+            .title {
+                font-size: 20px;
+                letter-spacing: 2px;
+            }
+            
+            .bubble-count {
+                font-size: 12px;
+                padding: 6px 12px;
+            }
+
+            .instructions {
+                bottom: 20px;
+                font-size: 11px;
+                padding: 8px 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    
+    <div class="hud">
+        <div class="title">NIMONO</div>
+        <div class="bubble-count" id="bubbleCount">Bubbles: 40</div>
+    </div>
+
+    <div class="instructions">
+        Double tap contact areas to merge bubbles | Drag to create flow
+    </div>
+
+    <div class="victory-message" id="victoryMessage">
+        <div class="victory-title">COMPLETE</div>
+        <div class="victory-subtitle">All bubbles merged into one</div>
+        <button class="reset-button" onclick="location.reload()">RESTART</button>
+    </div>
+
+    <script>
+        class NimonoApp {
+            constructor() {
+                this.canvas = document.getElementById('canvas');
+                this.ctx = this.canvas.getContext('2d');
+                
+                this.setupCanvas();
+                this.setupBubbles();
+                this.setupPhysics();
+                this.setupEvents();
+                this.animate();
+                
+                this.mouse = { x: 0, y: 0, isDown: false, lastX: 0, lastY: 0 };
+                this.touches = [];
+                this.time = 0;
+                this.lastMergeTime = 0;
+                this.lastTapTime = 0;
+                this.lastTapPosition = { x: 0, y: 0 };
+                this.doubleTapThreshold = 300; // 300ms for double tap
+                this.doubleTapDistance = 50; // 50px max distance for double tap
+            }
+
+            setupCanvas() {
+                this.canvas.width = window.innerWidth;
+                this.canvas.height = window.innerHeight;
+                
+                window.addEventListener('resize', () => {
+                    this.canvas.width = window.innerWidth;
+                    this.canvas.height = window.innerHeight;
+                });
+            }
+
+            setupBubbles() {
+                this.bubbles = [];
+                
+                // Create 40 small bubbles starting from top
+                for (let i = 0; i < 40; i++) {
+                    const x = 50 + Math.random() * (this.canvas.width - 100);
+                    const y = -100 - Math.random() * 200; // Start above screen
+                    
+                    const bubble = {
+                        x: x,
+                        y: y,
+                        vx: (Math.random() - 0.5) * 0.1, // Very small initial horizontal velocity
+                        vy: 0.1 + Math.random() * 0.2, // Small downward velocity
+                        size: 8 + Math.random() * 12,
+                        originalSize: 0,
+                        mass: 1,
+                        viscosity: 0.995,
+                        id: i,
+                        phase: Math.random() * Math.PI * 2,
+                        deformation: { x: 1, y: 1 },
+                        age: 0,
+                        lastCollisionTime: 0,
+                        // Subtle colors for grey-white background
+                        hue: Math.random() * 60 + 180,
+                        saturation: 0.4 + Math.random() * 0.3,
+                        lightness: 0.5 + Math.random() * 0.3,
+                        alpha: 0.5 + Math.random() * 0.3,
+                        dropDelay: i * 100 // Stagger the drop timing
+                    };
+                    
+                    bubble.originalSize = bubble.size;
+                    bubble.mass = bubble.size / 10;
+                    this.bubbles.push(bubble);
+                }
+                
+                this.updateBubbleCount();
+            }
+
+            setupPhysics() {
+                this.gravity = 0.008;
+                this.friction = 0.998;
+                this.mergeDistance = 25;
+                this.minMergeSpeed = 0.5;
+            }
+
+            setupEvents() {
+                // Mouse events
+                this.canvas.addEventListener('mousedown', (e) => this.handleMouseDown(e));
+                this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
+                this.canvas.addEventListener('mouseup', (e) => this.handleMouseUp(e));
+
+                // Touch events
+                this.canvas.addEventListener('touchstart', (e) => this.handleTouchStart(e), { passive: false });
+                this.canvas.addEventListener('touchmove', (e) => this.handleTouchMove(e), { passive: false });
+                this.canvas.addEventListener('touchend', (e) => this.handleTouchEnd(e), { passive: false });
+            }
+
+            handleMouseDown(e) {
+                this.mouse.isDown = true;
+                this.updateMousePosition(e);
+                this.handleTap(this.mouse.x, this.mouse.y);
+            }
+
+            handleMouseMove(e) {
+                this.mouse.lastX = this.mouse.x;
+                this.mouse.lastY = this.mouse.y;
+                this.updateMousePosition(e);
+                
+                if (this.mouse.isDown) {
+                    this.createFlow(this.mouse.x, this.mouse.y, this.mouse.lastX, this.mouse.lastY);
+                }
+            }
+
+            handleMouseUp(e) {
+                this.mouse.isDown = false;
+            }
+
+            handleTouchStart(e) {
+                e.preventDefault();
+                this.touches = Array.from(e.touches);
+                
+                if (this.touches.length === 1) {
+                    const rect = this.canvas.getBoundingClientRect();
+                    const touch = this.touches[0];
+                    const x = touch.clientX - rect.left;
+                    const y = touch.clientY - rect.top;
+                    this.handleTap(x, y);
+                }
+            }
+
+            handleTouchMove(e) {
+                e.preventDefault();
+                const prevTouches = [...this.touches];
+                this.touches = Array.from(e.touches);
+                
+                if (this.touches.length === 1 && prevTouches.length === 1) {
+                    const rect = this.canvas.getBoundingClientRect();
+                    const currentTouch = this.touches[0];
+                    const prevTouch = prevTouches[0];
+                    
+                    const currentX = currentTouch.clientX - rect.left;
+                    const currentY = currentTouch.clientY - rect.top;
+                    const prevX = prevTouch.clientX - rect.left;
+                    const prevY = prevTouch.clientY - rect.top;
+                    
+                    this.createFlow(currentX, currentY, prevX, prevY);
+                }
+            }
+
+            handleTouchEnd(e) {
+                e.preventDefault();
+                this.touches = Array.from(e.touches);
+            }
+
+            handleTap(x, y) {
+                const currentTime = Date.now();
+                const timeDiff = currentTime - this.lastTapTime;
+                const distance = Math.sqrt(
+                    Math.pow(x - this.lastTapPosition.x, 2) + 
+                    Math.pow(y - this.lastTapPosition.y, 2)
+                );
+
+                if (timeDiff < this.doubleTapThreshold && distance < this.doubleTapDistance) {
+                    // Double tap detected
+                    this.handleDoubleTap(x, y);
+                } else {
+                    // Single tap
+                    this.lastTapTime = currentTime;
+                    this.lastTapPosition = { x, y };
+                }
+            }
+
+            handleDoubleTap(x, y) {
+                // Find bubbles near the contact area
+                const contactBubbles = this.findBubblesInContactArea(x, y);
+                
+                if (contactBubbles.length >= 2) {
+                    // Merge the two closest bubbles
+                    const bubble1 = contactBubbles[0];
+                    const bubble2 = contactBubbles[1];
+                    
+                    // Haptic feedback
+                    if (navigator.vibrate) {
+                        navigator.vibrate([50, 30, 50]);
+                    }
+                    
+                    this.mergeBubbles(bubble1, bubble2);
+                }
+            }
+
+            findBubblesInContactArea(x, y) {
+                const searchRadius = 60;
+                const nearbyBubbles = [];
+                
+                this.bubbles.forEach(bubble => {
+                    const dx = bubble.x - x;
+                    const dy = bubble.y - y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance < searchRadius) {
+                        nearbyBubbles.push({
+                            bubble: bubble,
+                            distance: distance
+                        });
+                    }
+                });
+                
+                // Sort by distance and return bubbles
+                return nearbyBubbles
+                    .sort((a, b) => a.distance - b.distance)
+                    .map(item => item.bubble)
+                    .slice(0, 2); // Return max 2 bubbles
+            }
+
+            updateMousePosition(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                this.mouse.x = e.clientX - rect.left;
+                this.mouse.y = e.clientY - rect.top;
+            }
+
+            createFlow(x, y, lastX, lastY) {
+                const radius = 100;
+                const maxForce = 0.4;
+                
+                const moveX = x - lastX;
+                const moveY = y - lastY;
+                const moveStrength = Math.min(Math.sqrt(moveX * moveX + moveY * moveY) * 0.08, maxForce);
+                
+                this.bubbles.forEach(bubble => {
+                    const dx = bubble.x - x;
+                    const dy = bubble.y - y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance < radius && distance > 0) {
+                        const influence = (radius - distance) / radius;
+                        const forceStrength = moveStrength * influence;
+                        
+                        if (moveStrength > 0.05) {
+                            const flowAngle = Math.atan2(moveY, moveX);
+                            bubble.vx += Math.cos(flowAngle) * forceStrength;
+                            bubble.vy += Math.sin(flowAngle) * forceStrength;
+                        }
+                    }
+                });
+            }
+
+            updatePhysics() {
+                this.time += 0.016;
+
+                this.bubbles.forEach((bubble, i) => {
+                    // Handle drop animation - bubbles fall from top gradually
+                    if (bubble.y < 0 && this.time * 1000 > bubble.dropDelay) {
+                        bubble.vy = Math.max(bubble.vy, 0.1); // Start falling
+                    }
+                    
+                    // Gravity
+                    bubble.vy += this.gravity;
+                    
+                    // Speed limit
+                    const maxSpeed = 2.0;
+                    const speed = Math.sqrt(bubble.vx * bubble.vx + bubble.vy * bubble.vy);
+                    if (speed > maxSpeed) {
+                        bubble.vx = (bubble.vx / speed) * maxSpeed;
+                        bubble.vy = (bubble.vy / speed) * maxSpeed;
+                    }
+
+                    // Viscosity
+                    bubble.vx *= bubble.viscosity;
+                    bubble.vy *= bubble.viscosity;
+
+                    // Position update
+                    bubble.x += bubble.vx;
+                    bubble.y += bubble.vy;
+
+                    // Boundary collision
+                    const margin = bubble.size;
+                    if (bubble.x - margin < 0) {
+                        bubble.x = margin;
+                        bubble.vx *= -0.3;
+                    }
+                    if (bubble.x + margin > this.canvas.width) {
+                        bubble.x = this.canvas.width - margin;
+                        bubble.vx *= -0.3;
+                    }
+                    if (bubble.y - margin < 0) {
+                        bubble.y = margin;
+                        bubble.vy *= -0.3;
+                    }
+                    if (bubble.y + margin > this.canvas.height) {
+                        bubble.y = this.canvas.height - margin;
+                        bubble.vy *= -0.4;
+                    }
+
+                    // Mild deformation
+                    bubble.phase += 0.01;
+                    const deformStrength = Math.min(speed * 0.05, 0.1);
+                    bubble.deformation.x = 1 + Math.sin(bubble.phase) * 0.05 + deformStrength;
+                    bubble.deformation.y = 1 - Math.sin(bubble.phase) * 0.05 - deformStrength * 0.3;
+
+                    bubble.age++;
+                });
+
+                this.checkBubbleInteractions();
+            }
+
+            checkBubbleInteractions() {
+                const currentTime = Date.now();
+                
+                for (let i = 0; i < this.bubbles.length; i++) {
+                    for (let j = i + 1; j < this.bubbles.length; j++) {
+                        const bubble1 = this.bubbles[i];
+                        const bubble2 = this.bubbles[j];
+                        
+                        const dx = bubble2.x - bubble1.x;
+                        const dy = bubble2.y - bubble1.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        const minDistance = bubble1.size + bubble2.size;
+
+                        if (distance < minDistance && distance > 0) {
+                            // Auto merge conditions
+                            const relativeVx = Math.abs(bubble1.vx - bubble2.vx);
+                            const relativeVy = Math.abs(bubble1.vy - bubble2.vy);
+                            const relativeSpeed = Math.sqrt(relativeVx * relativeVx + relativeVy * relativeVy);
+                            
+                            if (distance < this.mergeDistance && 
+                                relativeSpeed < this.minMergeSpeed &&
+                                currentTime - this.lastMergeTime > 300) {
+                                this.mergeBubbles(bubble1, bubble2);
+                                this.lastMergeTime = currentTime;
+                                return;
+                            }
+
+                            // Elastic collision
+                            const overlap = minDistance - distance;
+                            const separationX = (dx / distance) * overlap * 0.3;
+                            const separationY = (dy / distance) * overlap * 0.3;
+
+                            bubble1.x -= separationX * 0.5;
+                            bubble1.y -= separationY * 0.5;
+                            bubble2.x += separationX * 0.5;
+                            bubble2.y += separationY * 0.5;
+
+                            // Velocity exchange
+                            const dampening = 0.4;
+                            const tempVx = bubble1.vx;
+                            const tempVy = bubble1.vy;
+                            
+                            bubble1.vx = bubble2.vx * dampening;
+                            bubble1.vy = bubble2.vy * dampening;
+                            bubble2.vx = tempVx * dampening;
+                            bubble2.vy = tempVy * dampening;
+                        }
+                    }
+                }
+            }
+
+            mergeBubbles(bubble1, bubble2) {
+                // Calculate new bubble properties
+                const totalArea = Math.PI * (bubble1.size * bubble1.size + bubble2.size * bubble2.size);
+                const newSize = Math.sqrt(totalArea / Math.PI);
+                
+                const totalMass = bubble1.mass + bubble2.mass;
+                const newX = (bubble1.x * bubble1.mass + bubble2.x * bubble2.mass) / totalMass;
+                const newY = (bubble1.y * bubble1.mass + bubble2.y * bubble2.mass) / totalMass;
+                
+                const newVx = (bubble1.vx * bubble1.mass + bubble2.vx * bubble2.mass) / totalMass;
+                const newVy = (bubble1.vy * bubble1.mass + bubble2.vy * bubble2.mass) / totalMass;
+
+                // Create new bubble
+                const newBubble = {
+                    x: newX,
+                    y: newY,
+                    vx: newVx * 0.8,
+                    vy: newVy * 0.8,
+                    size: newSize,
+                    originalSize: newSize,
+                    mass: totalMass,
+                    viscosity: 0.995,
+                    id: Math.max(bubble1.id, bubble2.id),
+                    phase: Math.random() * Math.PI * 2,
+                    deformation: { x: 1, y: 1 },
+                    age: 0,
+                    lastCollisionTime: Date.now(),
+                    hue: (bubble1.hue + bubble2.hue) / 2,
+                    saturation: Math.min((bubble1.saturation + bubble2.saturation) / 2, 0.6),
+                    lightness: (bubble1.lightness + bubble2.lightness) / 2,
+                    alpha: Math.min((bubble1.alpha + bubble2.alpha) / 2 + 0.1, 0.8),
+                    dropDelay: 0
+                };
+
+                // Remove old bubbles and add new one
+                this.bubbles = this.bubbles.filter(b => b !== bubble1 && b !== bubble2);
+                this.bubbles.push(newBubble);
+                
+                this.updateBubbleCount();
+
+                // Victory check
+                if (this.bubbles.length === 1) {
+                    setTimeout(() => this.showVictory(), 800);
+                }
+            }
+
+            drawBubble(bubble) {
+                const ctx = this.ctx;
+                
+                ctx.save();
+                ctx.translate(bubble.x, bubble.y);
+                ctx.scale(bubble.deformation.x, bubble.deformation.y);
+
+                // Subtle color with HSL
+                const baseColor = `hsla(${bubble.hue}, ${bubble.saturation * 100}%, ${bubble.lightness * 100}%, ${bubble.alpha})`;
+                const highlightColor = `hsla(${bubble.hue}, ${bubble.saturation * 100}%, ${Math.min(bubble.lightness * 100 + 20, 90)}%, ${bubble.alpha * 0.7})`;
+                
+                // Main gradient - more subtle
+                const mainGradient = ctx.createRadialGradient(
+                    -bubble.size * 0.3, -bubble.size * 0.3, 0,
+                    0, 0, bubble.size
+                );
+                
+                mainGradient.addColorStop(0, highlightColor);
+                mainGradient.addColorStop(0.4, baseColor);
+                mainGradient.addColorStop(0.8, `hsla(${bubble.hue}, ${bubble.saturation * 100}%, ${bubble.lightness * 85}%, ${bubble.alpha * 0.7})`);
+                mainGradient.addColorStop(1, `hsla(${bubble.hue}, ${bubble.saturation * 100}%, ${bubble.lightness * 70}%, ${bubble.alpha * 0.4})`);
+
+                // Bubble body
+                ctx.beginPath();
+                ctx.arc(0, 0, bubble.size, 0, Math.PI * 2);
+                ctx.fillStyle = mainGradient;
+                ctx.fill();
+
+                // Smaller, more subtle highlight
+                const highlight = ctx.createRadialGradient(
+                    -bubble.size * 0.5, -bubble.size * 0.5, 0,
+                    -bubble.size * 0.3, -bubble.size * 0.3, bubble.size * 0.3
+                );
+                highlight.addColorStop(0, 'rgba(255, 255, 255, 0.3)');
+                highlight.addColorStop(0.7, 'rgba(255, 255, 255, 0.1)');
+                highlight.addColorStop(1, 'rgba(255, 255, 255, 0)');
+
+                ctx.beginPath();
+                ctx.arc(-bubble.size * 0.4, -bubble.size * 0.4, bubble.size * 0.2, 0, Math.PI * 2);
+                ctx.fillStyle = highlight;
+                ctx.fill();
+
+                // Subtle border
+                ctx.beginPath();
+                ctx.arc(0, 0, bubble.size, 0, Math.PI * 2);
+                ctx.strokeStyle = `rgba(100, 100, 100, 0.15)`;
+                ctx.lineWidth = 0.3;
+                ctx.stroke();
+
+                ctx.restore();
+            }
+
+            updateBubbleCount() {
+                document.getElementById('bubbleCount').textContent = `Bubbles: ${this.bubbles.length}`;
+            }
+
+            showVictory() {
+                document.getElementById('victoryMessage').style.display = 'block';
+            }
+
+            animate() {
+                this.updatePhysics();
+                
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                
+                // Draw bubbles
+                this.bubbles.forEach(bubble => {
+                    this.drawBubble(bubble);
+                });
+                
+                requestAnimationFrame(() => this.animate());
+            }
+        }
+
+        // Initialize app
+        document.addEventListener('DOMContentLoaded', () => {
+            new NimonoApp();
+        });
+    </script>
+</body>
+</html>
